@@ -60,18 +60,15 @@ function App() {
     // STATE
     // ========================================================
 
-    const [
-        messages,
-        setMessages,
-    ] = useState([
-        welcomeMessage,
-    ]);
+    const  [messages , setmessages] = 
+userstate([]);
+    const[input, setinput] = useState("");    
 
-
-    const [
-        input,
-        setInput,
-    ] = useState("");
+   const [setSessioId, setSessionId] = 
+usestate(
+    localStorage.getItem("session_Id") ||
+""    
+ );   
 
 
     const [

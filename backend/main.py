@@ -1,11 +1,26 @@
 import json
 import os
 import tempfile
+import sqlite3
 
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from shopping_agent import agent
+
+import uuid
+
+from setup_db import (
+    create_database,
+    create_chat_session,
+    save_messages,
+    get_chat_history
+)
+
+DB_PATH  = os.path.join(
+    os.path.dirname(__file__),
+    "store.db"
+)
 
 
 # ============================================================
@@ -156,85 +171,81 @@ def health():
 def chat(
     message: str = Form(...),
     history: str = Form("[]"),
+    session_id: str = Form(...),
 ):
 
     try:
 
-        # ----------------------------------------------------
-        # LOAD HISTORY SENT BY FRONTEND
-        # ----------------------------------------------------
+       if not session_id:
+        session_id = str(uuid.uuid4())
+        create_chat_session(session_id)
 
-        try:
+       conversation = get_chat_history(session_id)
 
-            conversation = json.loads(
-                history
-            )
+       if not isinstance(conversation, list):
+        conversation = []
 
-            if not isinstance(
-                conversation,
-                list,
-            ):
-                conversation = []
-
-        except (
-            json.JSONDecodeError,
-            TypeError,
-        ):
-
-            conversation = []
-
+       save_messages(
+        session_id, 
+        "user",
+        message
+       ) 
 
         # ----------------------------------------------------
         # BUILD CLEAN LANGCHAIN MESSAGE HISTORY
         # ----------------------------------------------------
 
-        messages = []
+       messages = []
 
-        for item in conversation:
-
-            if not isinstance(
-                item,
-                dict,
-            ):
-                continue
-
-
-            role = item.get(
-                "role"
-            )
-
-            content = item.get(
-                "content"
-            )
+       for item in conversation:
+        if not isinstance(item ,dict):
+            continue
+        role = item.get("role")
+        content = item.get("message")    
 
 
             # Only allow actual conversation messages.
-            if role not in [
-                "user",
-                "assistant",
-            ]:
-                continue
+        if  not content:
+            continue
+
+        if role == "user":
+             message.append({
+                 "role":"user",
+                 "content":content
+            })
+                    
+        elif role == "assistant":
+            mesaage.append({
+                "role":"assistant",
+                "content": content
+            })   
+       messages.append({
+        "role":"user",
+        "content":message
+    })
 
 
-            if not content:
-                continue
+       result = agent.invoke({
+        "message":messages
+    })
+
+       response = extract_response(result)
 
 
-            content = str(
-                content
-            ).strip()
+       save_message(
+         session_id,
+         "assistant",
+         response
+    )
 
-
-            if not content:
-                continue
-
-
-            messages.append(
-                {
-                    "role": role,
-                    "content": content,
-                }
-            )
+       return {
+         "session_id": session_id,
+         "response": response
+    }
+    except Exception as e:
+        return {
+          "error": str(e)
+    }    
 
 
         # ----------------------------------------------------
@@ -260,40 +271,6 @@ def chat(
         # RUN AGENT WITH COMPLETE CONVERSATION
         # ----------------------------------------------------
 
-        result = agent.invoke(
-            {
-                "messages": messages
-            }
-        )
-
-
-        # ----------------------------------------------------
-        # EXTRACT ONLY FINAL AI RESPONSE
-        # ----------------------------------------------------
-
-        response = extract_response(
-            result
-        )
-
-
-        # ----------------------------------------------------
-        # RETURN RESPONSE
-        # ----------------------------------------------------
-
-        return {
-            "success": True,
-            "response": response,
-        }
-
-
-    except Exception as e:
-
-        return {
-            "success": False,
-            "response": (
-                f"Error: {str(e)}"
-            ),
-        }
 
 
 # ============================================================
